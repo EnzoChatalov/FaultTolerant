@@ -1,3 +1,5 @@
+from queue import Queue
+import sys
 from Node import Node
 import threading, time
 
@@ -5,6 +7,19 @@ nodes = sys.argv[0]
 epoch = sys.argv[1]
 
 seconds = epoch * 2
+
+def main():
+    node_id = int(sys.argv[1])
+    num_nodes = 5
+    nodeList = [('"localhost"', 5000 + i) for i in range(num_nodes)]
+    msgQueue = Queue()
+    port = nodes[node_id][1]
+    server = Server(port, msgQueue)
+    server.start()
+    multicast = Multicast(nodeList, node_id)
+    node = Node()
+
+
 
 
 def run_node(node_id):

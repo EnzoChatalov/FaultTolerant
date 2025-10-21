@@ -3,3 +3,4 @@ class Message:
         self.msg_type = msg_type
         self.content = content
         self.sender_id = sender_id
+        self.id = str(uuid.uuid4())
