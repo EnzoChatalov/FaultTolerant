@@ -1,7 +1,8 @@
 from queue import Queue
 import sys
-from Node import Node
+from streamlet import Node
 import threading, time
+import sys
 
 nodes = sys.argv[0]
 epoch = sys.argv[1]
