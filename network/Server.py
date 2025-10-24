@@ -9,7 +9,7 @@ class Server(Thread):
     
     def run(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.bind((host, self.port))
+        s.bind((self.host, self.port))
         s.listen()
         while True:
             conn, _ = s.accept()
@@ -19,7 +19,7 @@ class Server(Thread):
             conn.close()
 
     
-    def send(host, port, message):
+    def send(self, host, port, message):
         data = pickle.dumps(message)
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((host, port)) 

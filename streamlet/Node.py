@@ -26,7 +26,8 @@ class Node:
             self.pending_txs = TransactionGenerator().generateTransaction(3)
             print(self.pending_txs)
             prev_block = self.chain[-1]
-            new_block = Block(prev_block.hash, epoch, prev_block.length + 1, self.pending_txs)
+            parent_hash = prev_block.calculate_hash()
+            new_block = Block(parent_hash, epoch, prev_block.length + 1, self.pending_txs)
             content = {}
             content["new_block"] = new_block
             content["parent_chain"] = self.longest_notarized_chain()
@@ -69,6 +70,8 @@ class Node:
         if len(self.votes[block.hash]) > self.n // 2:
             self.notarized.add(block.hash)
             self.check_finalization(block)
+            # After handling and notorizing the block we can delete the pending transactions
+            pending_txs = []
 
     def check_finalization(self, block):
         # Simplified: finalize if 3 consecutive notarized blocks
