@@ -6,7 +6,7 @@ Group 6:
  Matouš Macák nº66722
 
 # How to run
-In the case of 5 nodes/processes: start 5 terminals, run in each terminal "python main.py [num_node]", where num_node starts at 1 and you increment it by 1 for each terminal.
+In the case of 5 nodes/processes: start 5 terminals, make sure you are inside the "/FaultTolerant" folder, then run in each terminal "python main.py [num_node]", where num_node starts at 1 and you increment it by 1 for each terminal.
 
 # Limitations
 We change the number of nodes and the delta manually inside our main.py.
