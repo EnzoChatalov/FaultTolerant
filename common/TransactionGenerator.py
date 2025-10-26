@@ -5,7 +5,7 @@ class TransactionGenerator:
     def generateTransaction(self, num_transactions):
         transactions = []
 
-        for t in range(0, transactions):
+        for t in range(0, num_transactions):
             sender = TransactionGenerator.random_with_N_digits(9)
             receiver = TransactionGenerator.random_with_N_digits(9)
             transaction_id = TransactionGenerator.random_with_N_digits(4)
