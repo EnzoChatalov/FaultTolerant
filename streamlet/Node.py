@@ -14,12 +14,12 @@ import copy
 
 class Node:
     def __init__(self, node_id, delta, nodes):
-        self.node_id = node_id
+        self.node_id = int(node_id)
         self.delta = delta
         self.nodes = nodes
 
-        self.other_nodes = copy.deepcopy(nodes)
-        self.other_nodes.pop(node_id - 1)
+        self.peers = [n for n in nodes if int(n["id"]) != self.node_id]
+        self.n = len(nodes)
 
         self.pending_txs = []
         self.blockchain = {}
@@ -28,9 +28,16 @@ class Node:
         self.finalized = []
 
         # network components
+        #self.queue = Queue()
+        #self.server = Server(self.nodes[self.node_id - 1][1], self.queue)
+        #self.multicast = Multicast(self.other_nodes, self.node_id)
+
         self.queue = Queue()
-        self.server = Server(self.nodes[self.node_id - 1][1], self.queue)
-        self.multicast = Multicast(self.other_nodes, self.node_id)
+        my_entry = next(n for n in self.nodes if int(n["id"]) == self.node_id)
+        self.server = Server(my_entry["host"], my_entry["port"], self.queue)
+        # Multicast expects list of (host, port, id)
+        peer_tuples = [(p["host"], p["port"], int(p["id"])) for p in self.peers]
+        self.multicast = Multicast(peer_tuples, self.node_id)
 
         genesis = Block("0", 0, 0, [])
         self.blockchain[genesis.hash] = genesis
@@ -39,7 +46,7 @@ class Node:
         self.finalized.append(genesis.hash)
 
     def start(self):
-        print(f"[Node {self.node_id}] starting server on {self.nodes[self.node_id - 1][1]}")
+        print(f"[Node {self.node_id}] starting server on {self.server.host}:{self.server.port}")
         server_thread = threading.Thread(target=self.server.run)
         server_thread.start()
         
@@ -48,8 +55,13 @@ class Node:
 
         #loop_thread = threading.Thread(target=self.loop)
         #loop_thread.start()
-        message_thread = threading.Thread(target=self.handle_messages, daemon=True).start()
-        self.loop()  # run main loop in main thread
+        message_thread = threading.Thread(target=self.handle_messages, daemon=True)
+        message_thread.start()
+
+        try:
+            self.loop()  # run main loop in main thread
+        except KeyboardInterrupt:
+            print(f"[Node {self.node_id}] Shutting down.")
 
         server_thread.join()
         message_thread.join()
@@ -99,6 +111,7 @@ class Node:
         
         block = message.content["new_block"]
         parent_chain = message.content["parent_chain"]
+        #echo
         self.multicast.broadcast(message)
 
         print(f"[Node {self.node_id}] Handling received block from {message.sender_id}: {block.hash} for epoch {block.epoch}")
@@ -154,9 +167,11 @@ class Node:
 
     def wait_for_other_nodes(self, timeout=10):
         start = time.time()
+        required = [(p["host"], p["port"]) for p in self.peers]
+
         while True:
             ready = 0
-            for host, port in self.other_nodes:
+            for host, port in required:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(1)
                 try:
@@ -167,7 +182,7 @@ class Node:
                 finally:
                     s.close()
 
-            if ready == len(self.other_nodes):
+            if ready == len(required):
                 print(f"[Node {self.node_id}] All peers are online.\n")
                 return
             if time.time() - start > timeout:

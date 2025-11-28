@@ -8,11 +8,8 @@ class Multicast():
     def broadcast(self, message):
         if message.id not in self.seen_messages:
             self.seen_messages.add(message.id)
-            for host, port in self.nodes:
+            for host, port, _id in self.nodes:
                 Server.send(host, port, message)
 
     def seenMessage(self, message):
-        if message.id in self.seen_messages:
-            return True
-        
-        return False
+        return message.id in self.seen_messages

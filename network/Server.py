@@ -2,11 +2,11 @@ import socket, pickle, struct
 from threading import Thread
 
 class Server(Thread):
-    def __init__(self, port, queue, host = "127.0.0.1"):
+    def __init__(self, host, port, queue):
         super().__init__(daemon=True)
+        self.host = host
         self.port = port
         self.queue = queue
-        self.host = host
     
     def run(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

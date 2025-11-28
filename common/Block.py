@@ -6,7 +6,7 @@ class Block:
         self.prev_hash = prev_hash
         self.epoch = epoch
         self.length = lenght
-        self.transactions = transactions
+        self.transactions = transactions or []
         self.hash = self.calculate_hash() 
 
     def calculate_hash(self):
