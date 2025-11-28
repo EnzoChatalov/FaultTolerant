@@ -9,11 +9,21 @@ from common.Message import Message
 from common.MessageType import MessageType
 from common.Transaction import Transaction
 import time, threading
-import copy
-
+import json
+import random
 
 class Node:
     def __init__(self, node_id, delta, nodes):
+
+        self.confusion_start = 0
+        self.confusion_duration = 2
+        self.crashed = False  # indicates whether the node is currently "crashed"
+
+        
+        self.current_epoch = 0
+        self.epoch_lock = threading.Lock()
+
+
         self.node_id = int(node_id)
         self.delta = delta
         self.nodes = nodes
@@ -26,6 +36,8 @@ class Node:
         self.votes = defaultdict(set) 
         self.notarized = []
         self.finalized = []
+        
+        self.mempool = []
 
         # network components
         #self.queue = Queue()
@@ -34,7 +46,7 @@ class Node:
 
         self.queue = Queue()
         my_entry = next(n for n in self.nodes if int(n["id"]) == self.node_id)
-        self.server = Server(my_entry["host"], my_entry["port"], self.queue)
+        self.server = Server(my_entry["host"], my_entry["port"], self.queue, self)
         # Multicast expects list of (host, port, id)
         peer_tuples = [(p["host"], p["port"], int(p["id"])) for p in self.peers]
         self.multicast = Multicast(peer_tuples, self.node_id)
@@ -44,6 +56,8 @@ class Node:
         # "Notarize" the genesis
         self.notarized.append(genesis.hash)
         self.finalized.append(genesis.hash)
+        
+        self.load_blockchain()  # Load blockchain from disk if exists
 
     def start(self):
         print(f"[Node {self.node_id}] starting server on {self.server.host}:{self.server.port}")
@@ -53,8 +67,12 @@ class Node:
 
         self.wait_for_other_nodes(timeout=20)
 
-        #loop_thread = threading.Thread(target=self.loop)
-        #loop_thread.start()
+        
+        #crash simulation thread
+        crash_thread = threading.Thread(target=Node.random_crash_simulation, args=(self,), daemon=True)
+        crash_thread.start()
+        
+        #msg handling thread
         message_thread = threading.Thread(target=self.handle_messages, daemon=True)
         message_thread.start()
 
@@ -65,7 +83,7 @@ class Node:
 
         server_thread.join()
         message_thread.join()
-        #loop_thread.join()
+        crash_thread.join()
 
     def loop(self):
         epoch = 1
@@ -73,6 +91,9 @@ class Node:
         next_epoch_start = time.time()
 
         while True:
+            with self.epoch_lock:
+                self.current_epoch = epoch
+                
             start_time = time.time()
             self.run_epoch(epoch)
             elapsed = time.time() - start_time
@@ -83,11 +104,37 @@ class Node:
             time.sleep(sleep_time)
             epoch += 1
 
-    def run_epoch(self, epoch):
-        leader = (epoch - 1) % len(self.nodes)
+    def get_leader(self, epoch):
+        if epoch < self.confusion_start or epoch >= self.confusion_start + self.confusion_duration - 1:
+        # normal leader: round-robin
+           return int(self.nodes[(epoch-1) % self.n]["id"])
+        else:
+        # confusion mode: deterministic by epoch to create forks
+            return epoch % self.n
 
-        if self.node_id == leader + 1:
-            self.pending_txs = TransactionGenerator().generateTransaction(3)
+   
+    def run_epoch(self, epoch):
+        BLOCK_SIZE = 3
+        if self.crashed:
+            print(f"[Node {self.node_id}] Skipping epoch {epoch} (crashed)")
+            return
+
+        leader = self.get_leader(epoch)
+
+        if self.node_id == leader:
+            txs = []
+            while self.mempool and len(txs) < BLOCK_SIZE:
+                txs.append(self.mempool.pop(0))
+            
+            if len(txs) < BLOCK_SIZE:
+                needed = BLOCK_SIZE - len(txs)
+                tx_generator = TransactionGenerator()
+                fake_txs = tx_generator.generateTransaction(needed)
+                txs.extend(fake_txs)      
+                
+                
+            self.pending_txs = txs
+            
             prev_block = max(self.blockchain.values(), key=lambda b: b.length)
             parent_hash = prev_block.hash
             new_block = Block(parent_hash, epoch, prev_block.length + 1, self.pending_txs)
@@ -135,7 +182,7 @@ class Node:
 
     
     def handle_vote(self, message):
-
+        
         if self.multicast.seenMessage(message):
             return
          
@@ -160,6 +207,9 @@ class Node:
             to_finalize = chain[-2]
             if to_finalize not in self.finalized:
                 self.finalized.append(to_finalize)
+                
+                self.save_blockchain() # Save the blockchain on disk
+                
                 #print(f"[Node {self.node_id}] Finalized block {to_finalize}")
                 #print(f"Blockchain: ", self.blockchain)
                 #print(f"Notarized: ", self.notarized)
@@ -192,5 +242,99 @@ class Node:
 
     def handle_messages(self):
         while True:
-            msg = self.queue.get()  # blocks until message arrives
-            self.on_receive(msg)
+            if self.crashed:
+                time.sleep(0.1)
+                continue    
+            
+            if self.queue.qsize() > 0:
+                current_epoch = self.get_current_epoch()
+                
+                if current_epoch < self.confusion_start or current_epoch >= self.confusion_start + self.confusion_duration:
+                    msg = self.queue.get()  # blocks until message arrives
+                    self.on_receive(msg)
+                else:
+                    time.sleep(0.1)
+            else:
+                time.sleep(0.1)  
+                    
+    def on_receive_client(self, tx):
+       self.mempool.append(tx)
+       
+    def get_current_epoch(self):
+        with self.epoch_lock:
+           return self.current_epoch
+
+    def save_blockchain(self, filename=None):
+        if filename is None:
+          filename = f"blockchain_node{self.node_id}.json"
+
+        with open(filename, "w") as f:
+            chain_list = [self.blockchain[hash].to_dict() for hash in self.finalized]
+            json.dump(chain_list, f, indent=2)
+        print(f"[Node {self.node_id}] Saved blockchain to disk, {len(self.finalized)} blocks")      
+
+    def load_blockchain(self, filename=None):
+        if filename is None:
+           filename = f"blockchain_node{self.node_id}.json"
+        try:
+            with open(filename, "r") as f:
+               chain_list = json.load(f)
+               for b_dict in chain_list:
+                    block = Block.from_dict(b_dict)
+                    self.blockchain[block.hash] = block
+                    self.finalized.append(block.hash)
+                    self.notarized.append(block.hash)
+            print(f"[Node {self.node_id}] Loaded blockchain from disk, {len(self.finalized)} blocks")
+        except FileNotFoundError:
+            print(f"[Node {self.node_id}] No blockchain file found, starting fresh")
+
+    def random_crash_simulation(node):
+      while True:
+        time.sleep(random.randint(20, 40))  # uptime before crash
+        node.crashed = True
+        print(f"[Node {node.node_id}] Crashed!")
+        time.sleep(random.randint(2, 5))  # downtime
+        node.crashed = False
+        print(f"[Node {node.node_id}] Recovered!")
+        node.catch_up_blockchain()  # Optional
+
+    def catch_up_blockchain(self):
+      """
+      After recovering from a crash, ask peers for missing finalized blocks.
+      """
+      print(f"[Node {self.node_id}] Catching up blockchain...")
+    
+    # Gather all finalized block hashes known locally
+      known_hashes = set(self.finalized)
+
+      for host, port, peer_id in [(p["host"], p["port"], int(p["id"])) for p in self.peers]:
+          try:
+              # Connect to peer
+              s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+              s.settimeout(2)
+              s.connect((host, port))
+
+            # Request blockchain data
+              request_msg = json.dumps({"type": "BLOCKCHAIN_REQUEST", "sender": self.node_id}).encode()
+              s.sendall(request_msg)
+
+            # Receive response
+              data = s.recv(10_000_000)  # adjust buffer as needed
+              chain_list = json.loads(data.decode())
+
+            # Add missing blocks
+              for b_dict in chain_list:
+                  block = Block.from_dict(b_dict)
+                  if block.hash not in self.blockchain:
+                      self.blockchain[block.hash] = block
+                  if block.hash not in self.notarized:
+                      self.notarized.append(block.hash)
+                  if block.hash not in self.finalized:
+                      self.finalized.append(block.hash)
+            
+              s.close()
+          except Exception as e:
+              print(f"[Node {self.node_id}] Could not catch up from {host}:{port} ({e})")
+
+      print(f"[Node {self.node_id}] Catch up complete. Finalized blocks: {len(self.finalized)}")
+      self.save_blockchain()

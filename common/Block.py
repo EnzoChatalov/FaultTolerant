@@ -1,5 +1,6 @@
 import hashlib
 import json
+from common.Transaction import Transaction
 
 class Block:
     def __init__(self, prev_hash, epoch, lenght, transactions):
@@ -31,3 +32,22 @@ class Block:
     def copy_without_txs(self):
         """Return a shallow copy of this block without transactions (for votes)."""
         return Block(self.prev_hash, self.epoch, self.length, [])
+    
+    
+    def to_dict(self):
+        """Serialize block to a dict."""
+        return {
+            "prev_hash": self.prev_hash,
+            "epoch": self.epoch,
+            "length": self.length,
+            "hash": self.hash,
+            "transactions": [tx.to_dict() for tx in self.transactions]
+        }
+
+    @staticmethod
+    def from_dict(d):
+        """Deserialize block from dict."""
+        transactions = [Transaction(**tx) for tx in d.get("transactions", [])]
+        block = Block(d["prev_hash"], d["epoch"], d["length"], transactions)
+        block.hash = d["hash"]  # use stored hash to ensure consistency
+        return block

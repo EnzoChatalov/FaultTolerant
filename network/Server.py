@@ -2,11 +2,12 @@ import socket, pickle, struct
 from threading import Thread
 
 class Server(Thread):
-    def __init__(self, host, port, queue):
+    def __init__(self, host, port, queue, node):
         super().__init__(daemon=True)
         self.host = host
         self.port = port
         self.queue = queue
+        self.node = node
     
     def run(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -35,9 +36,18 @@ class Server(Thread):
                 if len(data) != msg_len:
                     print("[ERROR] Incomplete message received")
                     continue
+ 
+                message = pickle.loads(data)  # your current code
 
-                message = pickle.loads(data)
-                self.queue.put(message)
+                if isinstance(message, dict) and message.get("type") == "BLOCKCHAIN_REQUEST":
+                  requester_id = message.get("sender")
+                # Prepare list of finalized blocks
+                  chain_list = [self.node.blockchain[h].to_dict() for h in self.node.finalized]
+                # Send it back as JSON
+                  conn.sendall(json.dumps(chain_list).encode())
+                else:
+                # Existing behavior: put message in queue
+                  self.queue.put(message)
 
             except Exception as e:
                 print(f"[ERROR] Failed to unpickle message: {e}")

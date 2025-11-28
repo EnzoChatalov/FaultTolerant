@@ -2,6 +2,7 @@ import random
 from .Transaction import Transaction
 
 class TransactionGenerator:
+
     def generateTransaction(self, num_transactions):
         transactions = []
 
