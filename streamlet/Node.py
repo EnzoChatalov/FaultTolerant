@@ -97,6 +97,8 @@ class Node:
             start_time = time.time()
             self.run_epoch(epoch)
             elapsed = time.time() - start_time
+            
+            ##epoch, timeout??
 
             next_epoch_start += time_epoch
             sleep_time = max(0, next_epoch_start - time.time())
@@ -305,7 +307,7 @@ class Node:
     def random_crash_simulation(node, num_crashes=3):
         crashes = 0
         while crashes < num_crashes:
-          time.sleep(random.randint(60, 120))  # uptime before crash
+          time.sleep(random.randint(5, 20))  # uptime before crash
           node.crashed = True
           print(f"[Node {node.node_id}] Crashed!")
           time.sleep(random.randint(2, 5))  # downtime
