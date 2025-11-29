@@ -158,6 +158,7 @@ class Node:
         
         block = message.content["new_block"]
         parent_chain = message.content["parent_chain"]
+        
         #echo
         self.multicast.broadcast(message)
 
@@ -167,18 +168,24 @@ class Node:
             if b.hash not in self.blockchain:
                 self.blockchain[b.hash] = b"""
 
-        if parent_chain[-1] in self.notarized:
-            if block.length + 1 > len(self.notarized):
-                vote = Message(MessageType.VOTE, block, self.node_id)
-                print(f"[Node {self.node_id}] Voting for block {block.hash}\n")
+         # Check parent notarization
+        if parent_chain[-1] not in self.notarized:
+           print(f"[Node {self.node_id}] Rejected block {block.hash}: parent {parent_chain[-1]} not notarized")
+           return
+         
+         # Add the received block to blockchain if missing
+        if block.hash not in self.blockchain:
+           self.blockchain[block.hash] = block
 
-                if len(self.nodes) == 2:
-                    self.blockchain[block.hash] = block
-                    self.notarized.append(block.hash)
-                    self.check_finalization()
-
-                self.votes[block.hash].add(self.node_id)
-                self.multicast.broadcast(vote)
+         # Vote if the block extends the longest notarized chain
+        max_notarized_length = max([self.blockchain[h].length for h in self.notarized])
+        if block.length > max_notarized_length:
+           vote = Message(MessageType.VOTE, block, self.node_id)
+           print(f"[Node {self.node_id}] Voting for block {block.hash}")
+           self.votes[block.hash].add(self.node_id)
+           self.multicast.broadcast(vote)
+        else:
+           print(f"[Node {self.node_id}] Not voting for block {block.hash}, does not extend longest notarized chain")   
 
     
     def handle_vote(self, message):
@@ -187,6 +194,10 @@ class Node:
             return
          
         block = message.content
+        
+        if block.hash not in self.blockchain:
+            self.blockchain[block.hash] = block
+
         self.votes[block.hash].add(message.sender_id)
         self.multicast.broadcast(message)
         #print("Checking Voting ", self.node_id)
@@ -194,26 +205,29 @@ class Node:
         if len(self.votes[block.hash]) > len(self.nodes) // 2 and block.hash not in self.notarized:
             print(f"[Node {self.node_id}] Notarized block {block.hash}")
             self.notarized.append(block.hash)
-            print(f"[Node {self.node_id}] Notarized chain {self.notarized}\n")
+            
+            last_5 = list(self.notarized)[-5:]
+            print(f"[Node {self.node_id}] Notarized chain (last {len(last_5)} hashes): {last_5}\n")
+           
             self.check_finalization()
             self.blockchain[block.hash] = block
             # After handling and notorizing the block we can delete the pending transactions
             pending_txs = []
 
     def check_finalization(self):
-        chain = self.notarized
-        #print("Checking Finalization ", self.node_id)
-        if len(chain) >= 3:
-            to_finalize = chain[-2]
-            if to_finalize not in self.finalized:
-                self.finalized.append(to_finalize)
-                
-                self.save_blockchain() # Save the blockchain on disk
-                
-                #print(f"[Node {self.node_id}] Finalized block {to_finalize}")
-                #print(f"Blockchain: ", self.blockchain)
-                #print(f"Notarized: ", self.notarized)
-                print(f"[Node {self.node_id}] Finalized chain: {self.finalized}\n")
+      # sort notarized blocks by epoch
+      notarized_blocks = [self.blockchain[h] for h in self.notarized]
+      notarized_blocks.sort(key=lambda b: b.epoch)
+
+    # iterate and finalize the middle block of every 3 consecutive epochs
+      for i in range(len(notarized_blocks) - 2):
+          b1, b2, b3 = notarized_blocks[i], notarized_blocks[i+1], notarized_blocks[i+2]
+          if b1.epoch + 1 == b2.epoch and b2.epoch + 1 == b3.epoch:
+              if b2.hash not in self.finalized:
+                  self.finalized.append(b2.hash)
+                  print(f"[Node {self.node_id}] Finalized block {b2.hash} (epoch {b2.epoch})")
+    
+      self.save_blockchain()
 
     def wait_for_other_nodes(self, timeout=10):
         start = time.time()
@@ -249,7 +263,7 @@ class Node:
             if self.queue.qsize() > 0:
                 current_epoch = self.get_current_epoch()
                 
-                if current_epoch < self.confusion_start or current_epoch >= self.confusion_start + self.confusion_duration:
+                if current_epoch < self.confusion_start or current_epoch > self.confusion_start + self.confusion_duration:
                     msg = self.queue.get()  # blocks until message arrives
                     self.on_receive(msg)
                 else:
@@ -288,15 +302,17 @@ class Node:
         except FileNotFoundError:
             print(f"[Node {self.node_id}] No blockchain file found, starting fresh")
 
-    def random_crash_simulation(node):
-      while True:
-        time.sleep(random.randint(20, 40))  # uptime before crash
-        node.crashed = True
-        print(f"[Node {node.node_id}] Crashed!")
-        time.sleep(random.randint(2, 5))  # downtime
-        node.crashed = False
-        print(f"[Node {node.node_id}] Recovered!")
-        node.catch_up_blockchain()  # Optional
+    def random_crash_simulation(node, num_crashes=3):
+        crashes = 0
+        while crashes < num_crashes:
+          time.sleep(random.randint(60, 120))  # uptime before crash
+          node.crashed = True
+          print(f"[Node {node.node_id}] Crashed!")
+          time.sleep(random.randint(2, 5))  # downtime
+          node.crashed = False
+          print(f"[Node {node.node_id}] Recovered!")
+          node.catch_up_blockchain()  # Optional
+          crashes += 1
 
     def catch_up_blockchain(self):
       """

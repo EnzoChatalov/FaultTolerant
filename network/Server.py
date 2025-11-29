@@ -1,4 +1,4 @@
-import socket, pickle, struct
+import socket, pickle, struct, json
 from threading import Thread
 
 class Server(Thread):
@@ -21,7 +21,7 @@ class Server(Thread):
                 # Read the 4-byte length prefix
                 length_data = conn.recv(4)
                 if not length_data:
-                    conn.close()
+                    #conn.close()
                     continue
                 msg_len = struct.unpack("!I", length_data)[0]
 
@@ -39,15 +39,25 @@ class Server(Thread):
  
                 message = pickle.loads(data)  # your current code
 
-                if isinstance(message, dict) and message.get("type") == "BLOCKCHAIN_REQUEST":
-                  requester_id = message.get("sender")
-                # Prepare list of finalized blocks
-                  chain_list = [self.node.blockchain[h].to_dict() for h in self.node.finalized]
-                # Send it back as JSON
-                  conn.sendall(json.dumps(chain_list).encode())
+                if isinstance(message, dict) and message.get("msg_type") == "CLIENT_TX":
+                    sender = message["content"]["sender"]
+                    receiver = message["content"]["receiver"]
+                    amount = message["content"]["amount"]
+                    print(f"[SERVER] Received client transaction from {sender} to {receiver} amount {amount}")
+                        # Deliver transaction directly to the node
+                    self.node.on_receive_client(message["content"])
+                    #conn.close()
+                    continue
+                elif isinstance(message, dict) and message.get("type") == "BLOCKCHAIN_REQUEST":
+                    requester_id = message.get("sender")
+                #   Prepare list of finalized blocks
+                    chain_list = [self.node.blockchain[h].to_dict() for h in self.node.finalized]
+                #  Send it back as JSON
+                    conn.sendall(json.dumps(chain_list).encode())
+                    continue
                 else:
                 # Existing behavior: put message in queue
-                  self.queue.put(message)
+                    self.queue.put(message)
 
             except Exception as e:
                 print(f"[ERROR] Failed to unpickle message: {e}")
