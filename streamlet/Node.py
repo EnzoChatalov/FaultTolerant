@@ -51,13 +51,20 @@ class Node:
         peer_tuples = [(p["host"], p["port"], int(p["id"])) for p in self.peers]
         self.multicast = Multicast(peer_tuples, self.node_id)
 
-        genesis = Block("0", 0, 0, [])
-        self.blockchain[genesis.hash] = genesis
-        # "Notarize" the genesis
-        self.notarized.append(genesis.hash)
-        self.finalized.append(genesis.hash)
-        
         self.load_blockchain()  # Load blockchain from disk if exists
+
+        if not self.blockchain:
+            genesis = Block("0", 0, 0, [])
+            self.blockchain[genesis.hash] = genesis
+            # "Notarize" the genesis
+            self.notarized.append(genesis.hash)
+            self.finalized.append(genesis.hash)
+        else:
+            last_hash = list(self.blockchain)[-1]
+            last_block = self.blockchain[last_hash]
+            print(last_block.epoch)
+            print(self.finalized)
+            self.current_epoch = last_block.epoch + 1
 
     def start(self):
         print(f"[Node {self.node_id}] starting server on {self.server.host}:{self.server.port}")
@@ -86,7 +93,7 @@ class Node:
         crash_thread.join()
 
     def loop(self):
-        epoch = 1
+        epoch = self.current_epoch
         time_epoch = self.delta * 2
         next_epoch_start = time.time()
 
@@ -224,12 +231,13 @@ class Node:
     # iterate and finalize the middle block of every 3 consecutive epochs
       for i in range(len(notarized_blocks) - 2):
           b1, b2, b3 = notarized_blocks[i], notarized_blocks[i+1], notarized_blocks[i+2]
-          if b1.epoch + 1 == b2.epoch and b2.epoch + 1 == b3.epoch:
-              if b2.hash not in self.finalized:
-                  self.finalized.append(b2.hash)
-                  print(f"[Node {self.node_id}] Finalized block {b2.hash} (epoch {b2.epoch})")
-    
-      self.save_blockchain()
+          if b2.prev_hash == b1.hash and b3.prev_hash == b2.hash and b1.length + 1 == b2.length and b2.length + 1 == b3.length:
+                if b2.hash not in self.finalized:
+                    self.finalized.append(b2.hash)
+                    print(f"[Node {self.node_id}] Finalized block {b2.hash} (epoch {b2.epoch})")
+                    print("Notarized: ", self.notarized)
+                    print("Finalized: ", self.finalized)
+                    self.save_blockchain()
 
     def wait_for_other_nodes(self, timeout=10):
         start = time.time()
