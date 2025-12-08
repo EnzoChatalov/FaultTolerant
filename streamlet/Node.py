@@ -64,7 +64,6 @@ class Node:
             last_block = self.blockchain[last_hash]
             print(last_block.epoch)
             print(self.finalized)
-            self.current_epoch = last_block.epoch + 1
 
     def start(self):
         print(f"[Node {self.node_id}] starting server on {self.server.host}:{self.server.port}")
@@ -93,7 +92,7 @@ class Node:
         crash_thread.join()
 
     def loop(self):
-        epoch = self.current_epoch
+        epoch = self.current_epoch + 1
         time_epoch = self.delta * 2
         next_epoch_start = time.time()
 
@@ -147,7 +146,7 @@ class Node:
             prev_block = max(self.blockchain.values(), key=lambda b: b.length)
             parent_hash = prev_block.hash
             new_block = Block(parent_hash, epoch, prev_block.length + 1, self.pending_txs)
-            content = {"new_block": new_block, "parent_chain": self.notarized}
+            content = {"new_block": new_block, "parent_chain": self.get_longest_notarized_chain()}
 
             msg = Message(MessageType.PROPOSE, content, self.node_id)
             print(f"[Node {self.node_id}] Broadcasting PROPOSE for epoch {epoch}\n")
@@ -177,8 +176,10 @@ class Node:
             if b.hash not in self.blockchain:
                 self.blockchain[b.hash] = b"""
 
-         # Check parent notarization
-        if parent_chain[-1] not in self.notarized:
+        # Check parent notarization
+        print("Parent chain", parent_chain)
+        print("Longest notarized Chain", self.get_longest_notarized_chain())
+        if parent_chain != self.get_longest_notarized_chain():
            print(f"[Node {self.node_id}] Rejected block {block.hash}: parent {parent_chain[-1]} not notarized")
            return
          
@@ -231,13 +232,9 @@ class Node:
     # iterate and finalize the middle block of every 3 consecutive epochs
       for i in range(len(notarized_blocks) - 2):
           b1, b2, b3 = notarized_blocks[i], notarized_blocks[i+1], notarized_blocks[i+2]
-          if b2.prev_hash == b1.hash and b3.prev_hash == b2.hash and b1.length + 1 == b2.length and b2.length + 1 == b3.length:
+          if b2.prev_hash == b1.hash and b3.prev_hash == b2.hash and b1.epoch + 1 == b2.epoch and b2.epoch + 1 == b3.epoch:
                 if b2.hash not in self.finalized:
-                    self.finalized.append(b2.hash)
-                    print(f"[Node {self.node_id}] Finalized block {b2.hash} (epoch {b2.epoch})")
-                    print("Notarized: ", self.notarized)
-                    print("Finalized: ", self.finalized)
-                    self.save_blockchain()
+                    self.finalize_chain(b2.hash)
 
     def wait_for_other_nodes(self, timeout=10):
         start = time.time()
@@ -364,3 +361,122 @@ class Node:
 
       print(f"[Node {self.node_id}] Catch up complete. Finalized blocks: {len(self.finalized)}")
       self.save_blockchain()
+
+    def get_longest_notarized_chain(self):
+        return self.get_longest_chain(self.notarized)
+
+    def get_longest_finalized_chain(self):
+        return self.get_longest_chain(self.finalized)
+
+    def get_longest_chain(self, block_hashes):
+        """
+        Given a set/list of block hashes (notarized or finalized),
+        return the longest valid chain as a **list of block hashes** 
+        from genesis → head.
+        """
+
+        best_head = None
+        best_len = -1
+
+        # Find best head block
+        for h in block_hashes:
+            if h not in self.blockchain:
+                continue
+            b = self.blockchain[h]
+
+            # Verify reachability to genesis
+            curr = b
+            reachable = True
+            seen = set()
+
+            while curr.prev_hash != "0":
+                if curr.prev_hash not in self.blockchain:
+                    reachable = False
+                    break
+                curr = self.blockchain[curr.prev_hash]
+
+                if curr.hash in seen:  # cycle detection
+                    reachable = False
+                    break
+                seen.add(curr.hash)
+
+            if reachable and b.length > best_len:
+                best_len = b.length
+                best_head = h
+
+        if best_head is None:
+            return []
+
+        # Reconstruct chain (head → genesis)
+        chain = []
+        curr = self.blockchain[best_head]
+
+        while curr is not None:
+            chain.append(curr.hash)   # ⬅️ append hash instead of block
+            if curr.prev_hash == "0":
+                break
+            curr = self.blockchain.get(curr.prev_hash)
+
+        chain.reverse()
+        return chain
+
+    def finalize_chain(self, h):
+        """
+        Finalize block h AND all its ancestors in *forward* order:
+        genesis → ... → parent → h
+        """
+
+        # Collect ancestors first
+        chain = []
+        curr_hash = h
+
+        while curr_hash != "0":
+            if curr_hash in self.finalized:
+                break  # stop at the first already-finalized ancestor
+
+            chain.append(curr_hash)
+            curr_hash = self.blockchain[curr_hash].prev_hash
+
+        # Now finalize in correct (oldest → newest) order
+        for block_hash in reversed(chain):
+            self.finalized.append(block_hash)
+            b = self.blockchain[block_hash]
+            print(f"[Node {self.node_id}] Finalized block {b.hash} (epoch {b.epoch})")
+
+        self.save_blockchain()
+        print("Notarized:", self.notarized)
+        print("Finalized:", self.finalized)
+    
+    def get_parent_chain(self, block_hash):
+        """
+        Return the chain from genesis → block_hash (inclusive),
+        following prev_hash pointers. If the block does not exist or
+        chain is broken, returns an empty list.
+        """
+        if block_hash not in self.blockchain:
+            return []
+
+        chain = []
+        curr = self.blockchain[block_hash]
+        visited = set()
+
+        while True:
+            chain.append(curr)
+
+            # Stop at genesis
+            if curr.prev_hash == "0":
+                break
+
+            # Chain broken? Missing parent.
+            if curr.prev_hash not in self.blockchain:
+                return []
+
+            # Detect cycles (should never happen)
+            if curr.prev_hash in visited:
+                return []
+            visited.add(curr.prev_hash)
+
+            curr = self.blockchain[curr.prev_hash]
+
+        chain.reverse()
+        return chain
