@@ -446,37 +446,3 @@ class Node:
         self.save_blockchain()
         print("Notarized:", self.notarized)
         print("Finalized:", self.finalized)
-    
-    def get_parent_chain(self, block_hash):
-        """
-        Return the chain from genesis → block_hash (inclusive),
-        following prev_hash pointers. If the block does not exist or
-        chain is broken, returns an empty list.
-        """
-        if block_hash not in self.blockchain:
-            return []
-
-        chain = []
-        curr = self.blockchain[block_hash]
-        visited = set()
-
-        while True:
-            chain.append(curr)
-
-            # Stop at genesis
-            if curr.prev_hash == "0":
-                break
-
-            # Chain broken? Missing parent.
-            if curr.prev_hash not in self.blockchain:
-                return []
-
-            # Detect cycles (should never happen)
-            if curr.prev_hash in visited:
-                return []
-            visited.add(curr.prev_hash)
-
-            curr = self.blockchain[curr.prev_hash]
-
-        chain.reverse()
-        return chain
