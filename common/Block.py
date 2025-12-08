@@ -18,7 +18,6 @@ class Block:
             else:
                 tx_list.append(tx)
 
-        # Convert block data into a canonical (deterministic) string
         block_string = json.dumps({
             'previous_hash': self.prev_hash,
             'epoch': self.epoch,
@@ -26,7 +25,6 @@ class Block:
             'transactions': tx_list
         }, sort_keys=True)
 
-        # Compute SHA-256 digest
         return hashlib.sha256(block_string.encode('utf-8')).hexdigest()
     
     def copy_without_txs(self):

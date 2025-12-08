@@ -64,6 +64,7 @@ class Node:
             last_block = self.blockchain[last_hash]
             print(last_block.epoch)
             print(self.finalized)
+            self.current_epoch = last_block.epoch
 
     def start(self):
         print(f"[Node {self.node_id}] starting server on {self.server.host}:{self.server.port}")
@@ -110,6 +111,7 @@ class Node:
             sleep_time = max(0, next_epoch_start - time.time())
             #print(f"[Node {self.node_id}] Epoch {epoch} took {elapsed:.3f}s, sleeping {sleep_time:.3f}s")
             time.sleep(sleep_time)
+            print(self.votes)
             epoch += 1
 
     def get_leader(self, epoch):
@@ -146,6 +148,7 @@ class Node:
             prev_block = max(self.blockchain.values(), key=lambda b: b.length)
             parent_hash = prev_block.hash
             new_block = Block(parent_hash, epoch, prev_block.length + 1, self.pending_txs)
+            print("PROPOSING", self.get_longest_notarized_chain())
             content = {"new_block": new_block, "parent_chain": self.get_longest_notarized_chain()}
 
             msg = Message(MessageType.PROPOSE, content, self.node_id)
@@ -177,13 +180,17 @@ class Node:
                 self.blockchain[b.hash] = b"""
 
         # Check parent notarization
-        if parent_chain != self.get_longest_notarized_chain():
-           print(f"[Node {self.node_id}] Rejected block {block.hash}: parent {parent_chain[-1]} not notarized")
+        print("Parent chain", parent_chain)
+        print("Longest notarized chain", self.get_longest_notarized_chain())
+        temp = self.get_longest_notarized_chain()
+        temp.append(block.hash)
+        if self.chain_extends_hashes(temp, parent_chain):
+           print(f"[Node {self.node_id}] Rejected block {self.get_longest_notarized_chain()[-1]}: parent {parent_chain[-1]} not notarized")
            return
          
          # Add the received block to blockchain if missing
-        if block.hash not in self.blockchain:
-           self.blockchain[block.hash] = block
+        """if block.hash not in self.blockchain:
+           self.blockchain[block.hash] = block"""
 
          # Vote if the block extends the longest notarized chain
         max_notarized_length = max([self.blockchain[h].length for h in self.notarized])
@@ -203,8 +210,8 @@ class Node:
          
         block = message.content
         
-        if block.hash not in self.blockchain:
-            self.blockchain[block.hash] = block
+        """if block.hash not in self.blockchain:
+            self.blockchain[block.hash] = block"""
 
         self.votes[block.hash].add(message.sender_id)
         self.multicast.broadcast(message)
@@ -213,14 +220,12 @@ class Node:
         if len(self.votes[block.hash]) > len(self.nodes) // 2 and block.hash not in self.notarized:
             print(f"[Node {self.node_id}] Notarized block {block.hash}")
             self.notarized.append(block.hash)
+            self.blockchain[block.hash] = block
             
             last_5 = list(self.notarized)[-5:]
             print(f"[Node {self.node_id}] Notarized chain (last {len(last_5)} hashes): {last_5}\n")
            
             self.check_finalization()
-            self.blockchain[block.hash] = block
-            # After handling and notorizing the block we can delete the pending transactions
-            pending_txs = []
 
     def check_finalization(self):
       # sort notarized blocks by epoch
@@ -342,6 +347,7 @@ class Node:
             # Receive response
               data = s.recv(10_000_000)  # adjust buffer as needed
               chain_list = json.loads(data.decode())
+              print("chain list", chain_list)
 
             # Add missing blocks
               for b_dict in chain_list:
@@ -419,11 +425,6 @@ class Node:
         return chain
 
     def finalize_chain(self, h):
-        """
-        Finalize block h AND all its ancestors in *forward* order:
-        genesis → ... → parent → h
-        """
-
         # Collect ancestors first
         chain = []
         curr_hash = h
@@ -442,3 +443,22 @@ class Node:
             print(f"[Node {self.node_id}] Finalized block {b.hash} (epoch {b.epoch})")
 
         self.save_blockchain()
+
+    def chain_extends_hashes(self, base_chain_hashes, candidate_chain_hashes):
+        if not base_chain_hashes:
+            return True  # Empty base chain is always extended
+
+        if not candidate_chain_hashes:
+            return False
+
+        # Base chain head
+        base_head = base_chain_hashes[-1]
+
+        if base_head not in candidate_chain_hashes:
+            return False  # candidate chain doesn't contain the base chain
+
+        # Candidate prefix up to base head
+        index_in_candidate = candidate_chain_hashes.index(base_head)
+        candidate_prefix = candidate_chain_hashes[:index_in_candidate + 1]
+
+        return candidate_prefix == base_chain_hashes
