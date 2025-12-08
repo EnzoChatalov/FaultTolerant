@@ -177,8 +177,6 @@ class Node:
                 self.blockchain[b.hash] = b"""
 
         # Check parent notarization
-        print("Parent chain", parent_chain)
-        print("Longest notarized Chain", self.get_longest_notarized_chain())
         if parent_chain != self.get_longest_notarized_chain():
            print(f"[Node {self.node_id}] Rejected block {block.hash}: parent {parent_chain[-1]} not notarized")
            return
@@ -444,5 +442,3 @@ class Node:
             print(f"[Node {self.node_id}] Finalized block {b.hash} (epoch {b.epoch})")
 
         self.save_blockchain()
-        print("Notarized:", self.notarized)
-        print("Finalized:", self.finalized)
