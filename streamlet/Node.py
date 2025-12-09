@@ -48,8 +48,8 @@ class Node:
         my_entry = next(n for n in self.nodes if int(n["id"]) == self.node_id)
         self.server = Server(my_entry["host"], my_entry["port"], self.queue, self)
         # Multicast expects list of (host, port, id)
-        peer_tuples = [(p["host"], p["port"], int(p["id"])) for p in self.peers]
-        self.multicast = Multicast(peer_tuples, self.node_id)
+        self.peer_tuples = [(p["host"], p["port"], int(p["id"])) for p in self.peers]
+        self.multicast = Multicast(self.peer_tuples, self.node_id, self)
 
         self.load_blockchain()  # Load blockchain from disk if exists
 
@@ -73,7 +73,6 @@ class Node:
         
 
         self.wait_for_other_nodes(timeout=20)
-
         
         #crash simulation thread
         crash_thread = threading.Thread(target=Node.random_crash_simulation, args=(self,), daemon=True)
@@ -82,6 +81,9 @@ class Node:
         #msg handling thread
         message_thread = threading.Thread(target=self.handle_messages, daemon=True)
         message_thread.start()
+
+        self.request_unblock()
+        self.teste()
 
         try:
             self.loop()  # run main loop in main thread
@@ -155,15 +157,77 @@ class Node:
             print(f"[Node {self.node_id}] Broadcasting PROPOSE for epoch {epoch}\n")
             self.votes[new_block.hash].add(self.node_id)
             self.multicast.broadcast(msg)
+            vote = Message(MessageType.VOTE, new_block, self.node_id)
+            self.multicast.broadcast(vote)
     
     def on_receive(self, message):
         if message.msg_type == MessageType.PROPOSE:
             self.handle_propose(message)
         elif message.msg_type == MessageType.VOTE:
             self.handle_vote(message)
+        elif message.msg_type == MessageType.BLOCKCHAIN_REQUEST:
+            self.handle_blockchainRequest(message)
+        elif message.msg_type == MessageType.BLOCKCHAIN_RESPONSE:
+            self.handle_blockchainResponse(message)
+        elif message.msg_type == MessageType.UNBLOCK_REQUEST:
+            self.handle_unblock(message)
+    
+    def teste(self):
+        msg = Message(MessageType.BLOCKCHAIN_REQUEST, "", self.node_id)
+        self.multicast.broadcast(msg)
+    
+    def handle_blockchainRequest(self, message):
+        blockchain = [self.blockchain[hash].to_dict() for hash in self.notarized]
+
+        sender_host = None
+        sender_port = None
+
+        for host, port, pid in self.peer_tuples:
+            if pid == message.sender_id:
+                sender_host = host
+                sender_port = port
+
+        msg = Message(MessageType.BLOCKCHAIN_RESPONSE, blockchain, self.node_id)
+
+        self.server.send(sender_host, sender_port, msg)
+
+    def handle_blockchainResponse(self, message):
+        incoming_chain = message.content  # list of block dicts in order
+        print("BLOCKCHAIN_RESPONSE received:", len(incoming_chain), "blocks")
+
+        for b_dict in incoming_chain:
+            block = Block.from_dict(b_dict)
+            h = block.hash
+
+            # 1. Add to blockchain dictionary if missing
+            if h not in self.blockchain:
+                self.blockchain[h] = block
+
+            # 2. Maintain notarized order
+            if h not in self.notarized:
+                self.notarized.append(h)
+
+            # 3. Maintain finalized order
+            """if h not in self.finalized:
+                self.finalized.append(h)"""
+
+        print(f"[Node {self.node_id}] Updated blockchain:")
+        print(f"  blockchain size = {len(self.blockchain)}")
+        print(f"  notarized size  = {len(self.notarized)}")
+        print(f"  finalized size  = {len(self.finalized)}")
+
+        # Save updated state
+        #self.save_blockchain()
+    
+    def request_unblock(self):
+        msg = Message(MessageType.UNBLOCK_REQUEST, self.server.port, self.node_id)
+        self.multicast.broadcast(msg)
+        
+    def handle_unblock(self, message):
+        self.server.unblock(message.content)
+
 
     def handle_propose(self, message):
-
         if self.multicast.seenMessage(message):
             return
         
@@ -210,8 +274,8 @@ class Node:
          
         block = message.content
         
-        """if block.hash not in self.blockchain:
-            self.blockchain[block.hash] = block"""
+        if block.hash not in self.blockchain:
+            self.blockchain[block.hash] = block
 
         self.votes[block.hash].add(message.sender_id)
         self.multicast.broadcast(message)
@@ -268,6 +332,7 @@ class Node:
         while True:
             if self.crashed:
                 time.sleep(0.1)
+                print("SLEPT")
                 continue    
             
             if self.queue.qsize() > 0:
@@ -293,7 +358,7 @@ class Node:
           filename = f"blockchain_node{self.node_id}.json"
 
         with open(filename, "w") as f:
-            chain_list = [self.blockchain[hash].to_dict() for hash in self.finalized]
+            chain_list = [self.blockchain[h].to_dict() for h in sorted(self.notarized, key=lambda h: self.blockchain[h].epoch)] #[self.blockchain[hash].to_dict() for hash in self.finalized]
             json.dump(chain_list, f, indent=2)
         print(f"[Node {self.node_id}] Saved blockchain to disk, {len(self.finalized)} blocks")      
 
@@ -306,7 +371,7 @@ class Node:
                for b_dict in chain_list:
                     block = Block.from_dict(b_dict)
                     self.blockchain[block.hash] = block
-                    self.finalized.append(block.hash)
+                    #self.finalized.append(block.hash)
                     self.notarized.append(block.hash)
             print(f"[Node {self.node_id}] Loaded blockchain from disk, {len(self.finalized)} blocks")
         except FileNotFoundError:
@@ -319,9 +384,10 @@ class Node:
           node.crashed = True
           print(f"[Node {node.node_id}] Crashed!")
           time.sleep(random.randint(2, 5))  # downtime
-          node.crashed = False
           print(f"[Node {node.node_id}] Recovered!")
-          node.catch_up_blockchain()  # Optional
+          #node.teste()
+          node.crashed = False
+          #node.catch_up_blockchain()  # Optional
           crashes += 1
 
     def catch_up_blockchain(self):

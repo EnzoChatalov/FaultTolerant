@@ -8,6 +8,7 @@ class Server(Thread):
         self.port = port
         self.queue = queue
         self.node = node
+        self.offline_peersPort = set()
     
     def run(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -64,16 +65,24 @@ class Server(Thread):
             finally:
                 conn.close()
 
-    @staticmethod
-    def send(host, port, message):
+    def unblock(self, blocked_port):
+        self.offline_peersPort.discard(blocked_port)
+
+    def send(self, host, port, message):
+        if port in self.offline_peersPort:
+            return  # skip offline peers
+
         data = pickle.dumps(message, protocol=pickle.HIGHEST_PROTOCOL)
         length_prefix = struct.pack("!I", len(data))
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             s.connect((host, port))
             s.sendall(length_prefix + data)
+            # success → remove from offline
+            self.offline_peersPort.discard(port)
         except ConnectionRefusedError:
             print(f"[WARN] Could not connect to {host}:{port} — node not online yet.")
+            self.offline_peersPort.add(port)
         except Exception as e:
             print(f"[ERROR] Failed to send to {host}:{port}: {e}")
         finally:
