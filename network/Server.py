@@ -44,7 +44,8 @@ class Server(Thread):
                     sender = message["content"]["sender"]
                     receiver = message["content"]["receiver"]
                     amount = message["content"]["amount"]
-                    print(f"[SERVER] Received client transaction from {sender} to {receiver} amount {amount}")
+                    transaction_id = message["content"]["transaction_id"]
+                    print(f"[SERVER] Received client transaction from {sender} to {receiver} amount {amount}, transaction_id {transaction_id}")
                         # Deliver transaction directly to the node
                     self.node.on_receive_client(message["content"])
                     #conn.close()
@@ -67,6 +68,7 @@ class Server(Thread):
 
     def unblock(self, blocked_port):
         self.offline_peersPort.discard(blocked_port)
+        print("UNBLOCKED PORT:", blocked_port)
 
     def send(self, host, port, message):
         if port in self.offline_peersPort:

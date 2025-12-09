@@ -25,21 +25,26 @@ class ClientGUI:
         self.receiver_entry = tk.Entry(master)
         self.receiver_entry.grid(row=1, column=1)
 
-        tk.Label(master, text="Amount:").grid(row=2, column=0)
-        self.amount_entry = tk.Entry(master)
-        self.amount_entry.grid(row=2, column=1)
+        tk.Label(master, text="Transaction ID:").grid(row=2, column=0)
+        self.transaction_entry = tk.Entry(master)
+        self.transaction_entry.grid(row=2, column=1)
 
-        tk.Label(master, text="Node to send to:").grid(row=3, column=0)
+        tk.Label(master, text="Amount:").grid(row=3, column=0)
+        self.amount_entry = tk.Entry(master)
+        self.amount_entry.grid(row=3, column=1)
+
+        tk.Label(master, text="Node to send to:").grid(row=4, column=0)
         self.node_var = tk.StringVar(master)
         self.node_var.set(NODES[0]["id"])
-        tk.OptionMenu(master, self.node_var, *[n["id"] for n in NODES]).grid(row=3, column=1)
+        tk.OptionMenu(master, self.node_var, *[n["id"] for n in NODES]).grid(row=4, column=1)
 
         # Submit button
-        tk.Button(master, text="Submit Transaction", command=self.submit_transaction).grid(row=4, columnspan=2, pady=10)
+        tk.Button(master, text="Submit Transaction", command=self.submit_transaction).grid(row=5, columnspan=2, pady=10)
 
     def submit_transaction(self):
         sender = self.sender_entry.get()
         receiver = self.receiver_entry.get()
+        transaction_id = self.transaction_entry.get()
         amount = self.amount_entry.get()
         node_id = int(self.node_var.get())
 
@@ -59,6 +64,7 @@ class ClientGUI:
             "content": {
                 "sender": sender,
                 "receiver": receiver,
+                "transaction_id": transaction_id,
                 "amount": amount
             }
         }

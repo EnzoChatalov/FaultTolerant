@@ -83,7 +83,7 @@ class Node:
         message_thread.start()
 
         self.request_unblock()
-        self.teste()
+        self.request_blockchain()
 
         try:
             self.loop()  # run main loop in main thread
@@ -113,7 +113,6 @@ class Node:
             sleep_time = max(0, next_epoch_start - time.time())
             #print(f"[Node {self.node_id}] Epoch {epoch} took {elapsed:.3f}s, sleeping {sleep_time:.3f}s")
             time.sleep(sleep_time)
-            print(self.votes)
             epoch += 1
 
     def get_leader(self, epoch):
@@ -150,7 +149,6 @@ class Node:
             prev_block = max(self.blockchain.values(), key=lambda b: b.length)
             parent_hash = prev_block.hash
             new_block = Block(parent_hash, epoch, prev_block.length + 1, self.pending_txs)
-            print("PROPOSING", self.get_longest_notarized_chain())
             content = {"new_block": new_block, "parent_chain": self.get_longest_notarized_chain()}
 
             msg = Message(MessageType.PROPOSE, content, self.node_id)
@@ -172,7 +170,7 @@ class Node:
         elif message.msg_type == MessageType.UNBLOCK_REQUEST:
             self.handle_unblock(message)
     
-    def teste(self):
+    def request_blockchain(self):
         msg = Message(MessageType.BLOCKCHAIN_REQUEST, "", self.node_id)
         self.multicast.broadcast(msg)
     
@@ -226,7 +224,6 @@ class Node:
     def handle_unblock(self, message):
         self.server.unblock(message.content)
 
-
     def handle_propose(self, message):
         if self.multicast.seenMessage(message):
             return
@@ -244,8 +241,6 @@ class Node:
                 self.blockchain[b.hash] = b"""
 
         # Check parent notarization
-        print("Parent chain", parent_chain)
-        print("Longest notarized chain", self.get_longest_notarized_chain())
         temp = self.get_longest_notarized_chain()
         temp.append(block.hash)
         if self.chain_extends_hashes(temp, parent_chain):
@@ -347,6 +342,7 @@ class Node:
                 time.sleep(0.1)  
                     
     def on_receive_client(self, tx):
+       print("TXXXXXXXXXXXXXXXXX", tx)
        self.mempool.append(tx)
        
     def get_current_epoch(self):
