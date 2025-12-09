@@ -340,10 +340,45 @@ class Node:
                     time.sleep(0.1)
             else:
                 time.sleep(0.1)  
-                    
+    
+    
+    def _make_tx_object(self, tx_raw):
+
+    # if already Transaction instance
+        if hasattr(tx_raw, "to_dict") and callable(getattr(tx_raw, "to_dict")):
+            return tx_raw
+
+    # if it's a dict
+        if isinstance(tx_raw, dict):
+        # Reconfig transactions (keep as dict)
+            if tx_raw.get("msg_type") == "CLIENT_RECONFIG":
+               return tx_raw  # keep as dict; Block.to_dict() made robust below
+
+        # Otherwise assume payment content (sender/receiver/amount OR nested under "content")
+            content = tx_raw.get("content", tx_raw) if ("msg_type" in tx_raw or "content" in tx_raw) else tx_raw
+
+            sender = content.get("sender")
+            receiver = content.get("receiver")
+            amount = content.get("amount")
+
+        # Transaction id may be missing: generate a simple one (timestamp + random)
+            transaction_id = content.get("transaction_id")
+
+        # Basic validation
+            if sender is None or receiver is None or amount is None:
+            # Not a standard payment tx; return raw dict to avoid losing data
+              return tx_raw
+
+        # Create Transaction object matching your class signature
+            return Transaction(sender, receiver, transaction_id, amount)
+
+    # fallback: if unknown type, return as-is
+        return tx_raw
+                
     def on_receive_client(self, tx):
        print("TXXXXXXXXXXXXXXXXX", tx)
-       self.mempool.append(tx)
+       tx_obj = self._make_tx_object(tx)
+       self.mempool.append(tx_obj)
        
     def get_current_epoch(self):
         with self.epoch_lock:

@@ -4,6 +4,7 @@ import socket
 import pickle
 import struct
 import json
+import time, random
 
 # Load nodes from JSON file
 with open("ports.json", "r") as f:
@@ -25,10 +26,6 @@ class ClientGUI:
         self.receiver_entry = tk.Entry(master)
         self.receiver_entry.grid(row=1, column=1)
 
-        tk.Label(master, text="Transaction ID:").grid(row=2, column=0)
-        self.transaction_entry = tk.Entry(master)
-        self.transaction_entry.grid(row=2, column=1)
-
         tk.Label(master, text="Amount:").grid(row=3, column=0)
         self.amount_entry = tk.Entry(master)
         self.amount_entry.grid(row=3, column=1)
@@ -44,7 +41,7 @@ class ClientGUI:
     def submit_transaction(self):
         sender = self.sender_entry.get()
         receiver = self.receiver_entry.get()
-        transaction_id = self.transaction_entry.get()
+        transaction_id = int(time.time() * 1000) ^ random.getrandbits(16)
         amount = self.amount_entry.get()
         node_id = int(self.node_var.get())
 
