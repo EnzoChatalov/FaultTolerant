@@ -18,11 +18,10 @@ class Node:
         self.confusion_start = 0
         self.confusion_duration = 2
         self.crashed = False  # indicates whether the node is currently "crashed"
-
         
         self.current_epoch = 0
         self.epoch_lock = threading.Lock()
-
+        self.highestRec_epoch = 0
 
         self.node_id = int(node_id)
         self.delta = delta
@@ -51,7 +50,7 @@ class Node:
         self.peer_tuples = [(p["host"], p["port"], int(p["id"])) for p in self.peers]
         self.multicast = Multicast(self.peer_tuples, self.node_id, self)
 
-        self.load_blockchain()  # Load blockchain from disk if exists
+        self.load_blockchain() 
 
         if not self.blockchain:
             genesis = Block("0", 0, 0, [])
@@ -63,7 +62,6 @@ class Node:
             last_hash = list(self.blockchain)[-1]
             last_block = self.blockchain[last_hash]
             print(last_block.epoch)
-            print(self.finalized)
             self.current_epoch = last_block.epoch
 
     def start(self):
@@ -73,6 +71,9 @@ class Node:
         
 
         self.wait_for_other_nodes(timeout=20)
+
+        self.request_unblock()
+        self.request_blockchain()
         
         #crash simulation thread
         crash_thread = threading.Thread(target=Node.random_crash_simulation, args=(self,), daemon=True)
@@ -81,9 +82,6 @@ class Node:
         #msg handling thread
         message_thread = threading.Thread(target=self.handle_messages, daemon=True)
         message_thread.start()
-
-        self.request_unblock()
-        self.request_blockchain()
 
         try:
             self.loop()  # run main loop in main thread
@@ -100,6 +98,10 @@ class Node:
         next_epoch_start = time.time()
 
         while True:
+            if self.highestRec_epoch > epoch + 5:
+                epoch = self.highestRec_epoch + 1
+                print("NEW EPOCH")
+
             with self.epoch_lock:
                 self.current_epoch = epoch
                 
@@ -126,6 +128,7 @@ class Node:
    
     def run_epoch(self, epoch):
         BLOCK_SIZE = 3
+        
         if self.crashed:
             print(f"[Node {self.node_id}] Skipping epoch {epoch} (crashed)")
             return
@@ -208,6 +211,19 @@ class Node:
             # 3. Maintain finalized order
             """if h not in self.finalized:
                 self.finalized.append(h)"""
+        
+        if self.notarized:
+            # get all block epochs
+            all_epochs = [self.blockchain[h].epoch for h in self.notarized]
+
+            # set to max epoch + 1 (or just max, depending on your protocol)
+            max_epoch = max(all_epochs)
+
+            if self.highestRec_epoch < max_epoch: 
+                self.highestRec_epoch = max_epoch
+
+            print("CURRENT_EPOCH", self.current_epoch)
+            print("Node ID", self.node_id)
 
         print(f"[Node {self.node_id}] Updated blockchain:")
         print(f"  blockchain size = {len(self.blockchain)}")
@@ -283,7 +299,9 @@ class Node:
             
             last_5 = list(self.notarized)[-5:]
             print(f"[Node {self.node_id}] Notarized chain (last {len(last_5)} hashes): {last_5}\n")
-           
+
+            self.save_blockchain()
+
             self.check_finalization()
 
     def check_finalization(self):
@@ -539,7 +557,7 @@ class Node:
             b = self.blockchain[block_hash]
             print(f"[Node {self.node_id}] Finalized block {b.hash} (epoch {b.epoch})")
 
-        self.save_blockchain()
+        #self.save_blockchain()
 
     def chain_extends_hashes(self, base_chain_hashes, candidate_chain_hashes):
         if not base_chain_hashes:

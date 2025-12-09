@@ -1,6 +1,8 @@
 import socket, pickle, struct, json
 from threading import Thread
 
+from common.Transaction import Transaction
+
 class Server(Thread):
     def __init__(self, host, port, queue, node):
         super().__init__(daemon=True)
@@ -47,7 +49,7 @@ class Server(Thread):
                     transaction_id = message["content"]["transaction_id"]
                     print(f"[SERVER] Received client transaction from {sender} to {receiver} amount {amount}, transaction_id {transaction_id}")
                         # Deliver transaction directly to the node
-                    self.node.on_receive_client(message["content"])
+                    self.node.on_receive_client(Transaction(sender, receiver, transaction_id, amount))
                     #conn.close()
                     continue
                 elif isinstance(message, dict) and message.get("type") == "BLOCKCHAIN_REQUEST":
