@@ -39,21 +39,28 @@ class ClientGUI:
         tk.Button(master, text="Submit Transaction", command=self.submit_transaction).grid(row=5, columnspan=2, pady=10)
 
     def submit_transaction(self):
-        sender = self.sender_entry.get()
-        receiver = self.receiver_entry.get()
-        transaction_id = int(time.time() * 1000) ^ random.getrandbits(16)
-        amount = self.amount_entry.get()
-        node_id = int(self.node_var.get())
-
-        if not sender or not receiver or not amount:
-            messagebox.showwarning("Input Error", "All fields are required!")
-            return
-
+        
         try:
-            amount = float(amount)
+            sender = int(self.sender_entry.get())
+        except ValueError:
+            messagebox.showwarning("Input Error", "Sender ID must be an integer!")
+            return
+        
+        try:
+            receiver = int(self.receiver_entry.get())
+        except ValueError:
+            messagebox.showwarning("Input Error", "Receiver ID must be an integer!")
+            return
+         
+        try:
+            amount = float(self.amount_entry.get())
         except ValueError:
             messagebox.showwarning("Input Error", "Amount must be a number!")
             return
+      
+            
+        transaction_id = int(time.time() * 1000) ^ random.getrandbits(16)
+        node_id = int(self.node_var.get())
 
         # Transaction as a dictionary (pickle-safe)
         tx_message = {
